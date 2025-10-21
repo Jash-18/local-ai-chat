@@ -25,7 +25,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           python3-pip python3-setuptools python3-venv \
-          git zip unzip \
+          git zip unzip curl \
           openjdk-17-jdk \
           autoconf automake libtool pkg-config \
           build-essential cmake \
@@ -34,67 +34,102 @@ jobs:
           libgles2-mesa-dev libglu1-mesa libglu1-mesa-dev \
           libbz2-dev libreadline-dev libsqlite3-dev \
           libusb-1.0-0
-        
+
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install buildozer pillow cython==0.29.36
-        
+
+    - name: Set up Android SDK (cmdline-tools)
+      run: |
+        ANDROID_SDK_ROOT="$HOME/android-sdk"
+        mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+        cd "$ANDROID_SDK_ROOT/cmdline-tools"
+        curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o cmdtools.zip
+        mkdir -p latest
+        unzip -q cmdtools.zip -d latest
+        rm cmdtools.zip
+        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
+        echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> $GITHUB_PATH
+
+    - name: Accept Android SDK licenses
+      run: |
+        yes | sdkmanager --licenses || true
+
+    - name: Install Android SDK components
+      run: |
+        sdkmanager "platform-tools" "platforms;android-33" "build-tools;34.0.0"
+
+    - name: Verify Android tools
+      run: |
+        which sdkmanager || true
+        sdkmanager --list | head -n 50 || true
+        ls -la "$ANDROID_SDK_ROOT/build-tools" || true
+
     - name: Create app icon
       run: |
         mkdir -p data
-        python3 -c "
-        import os
-        try:
-            from PIL import Image, ImageDraw
-        except ImportError:
-            os.system('pip install pillow')
-            from PIL import Image, ImageDraw
-        
-        if not os.path.exists('data/icon.png'):
-            img = Image.new('RGB', (512, 512), color='#2196F3')
-            draw = ImageDraw.Draw(img)
-            draw.ellipse([50, 50, 462, 462], fill='white', outline='#1976D2', width=10)
-            draw.ellipse([150, 200, 220, 270], fill='#2196F3')
-            draw.ellipse([246, 200, 316, 270], fill='#2196F3')
-            draw.ellipse([342, 200, 412, 270], fill='#2196F3')
-            img.save('data/icon.png')
-            print('Created app icon')
-        "
-        
+        python3 - << 'PY'
+import os
+try:
+    from PIL import Image, ImageDraw
+except ImportError:
+    os.system('pip install pillow')
+    from PIL import Image, ImageDraw
+
+if not os.path.exists('data/icon.png'):
+    img = Image.new('RGB', (512, 512), color='#2196F3')
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([50, 50, 462, 462], fill='white', outline='#1976D2', width=10)
+    draw.ellipse([150, 200, 220, 270], fill='#2196F3')
+    draw.ellipse([246, 200, 316, 270], fill='#2196F3')
+    draw.ellipse([342, 200, 412, 270], fill='#2196F3')
+    img.save('data/icon.png')
+    print('Created app icon')
+PY
+
     - name: Create splash screen
       run: |
-        python3 -c "
-        import os
-        from PIL import Image, ImageDraw
-        
-        if not os.path.exists('data/presplash.png'):
-            img = Image.new('RGB', (800, 600), color='#2196F3')
-            draw = ImageDraw.Draw(img)
-            text = 'Local AI Chat'
-            try:
-                from PIL import ImageFont
-                font = ImageFont.load_default()
-                bbox = draw.textbbox((0, 0), text, font=font)
-                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                draw.text(((800-w)//2, (600-h)//2), text, fill='white', font=font)
-            except:
-                draw.text((300, 280), text, fill='white')
-            img.save('data/presplash.png')
-            print('Created splash screen')
-        "
-      
+        python3 - << 'PY'
+import os
+from PIL import Image, ImageDraw, ImageFont
+
+if not os.path.exists('data'):
+    os.makedirs('data')
+if not os.path.exists('data/presplash.png'):
+    img = Image.new('RGB', (800, 600), color='#2196F3')
+    draw = ImageDraw.Draw(img)
+    text = 'Local AI Chat'
+    try:
+        font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), text, font=font)
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text(((800-w)//2, (600-h)//2), text, fill='white', font=font)
+    except Exception:
+        draw.text((300, 280), text, fill='white')
+    img.save('data/presplash.png')
+    print('Created splash screen')
+PY
+
     - name: Build with Buildozer
+      env:
+        ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        ANDROID_API: "33"
+        ANDROID_BUILD_TOOLS: "34.0.0"
       run: |
         buildozer android debug
-        
+
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: local-ai-chat-apk
         path: bin/*.apk
         retention-days: 30
-        
+
     - name: Create Release
       if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
       uses: softprops/action-gh-release@v1
@@ -102,36 +137,18 @@ jobs:
         tag_name: v${{ github.run_number }}
         name: Local AI Chat v${{ github.run_number }}
         body: |
-          🤖 **Local AI Chat APK - Ready to Install!**
-          
-          ## 📱 Installation Instructions
-          1. **Download the APK** file below
-          2. **Transfer to your Android device** (USB, email, or cloud)
-          3. **Enable Install from Unknown Sources** in Android settings
-          4. **Install the APK** by tapping the file
-          5. **Connect both devices** to the same Wi-Fi network
-          
-          ## 🔧 LM Studio Setup (On Your Laptop - IP: 10.95.151.162)
-          1. **Download LM Studio** from https://lmstudio.ai/
-          2. **Load a model** (Llama, Mistral, DeepSeek, etc.)
-          3. **Go to Developer tab** and Start Server
-          4. **Enable Serve on Local Network** in settings
-          5. **Enable CORS** for mobile access
-          6. **Verify server** at http://10.95.151.162:1234
-          
-          ## ✨ Features
-          - 🎯 Pre-configured for IP address 10.95.151.162
-          - 💬 ChatGPT-like interface with blue/gray message bubbles
-          - 🔄 Real-time messaging with threaded API calls
-          - 📱 Mobile-optimized UI with touch-friendly controls
-          - 🛡️ Complete privacy - all data stays local
-          - 🚀 Ready to use - just install and connect!
-          
-          ## 🔍 Troubleshooting
-          - **Connection failed**: Ensure both devices on same Wi-Fi
-          - **Server not found**: Check LM Studio is running on laptop
-          - **No response**: Verify model is loaded in LM Studio
-          
+          🤖 Local AI Chat APK - Ready to Install!
+
+          Installation:
+          1. Download the APK below
+          2. Enable Install from Unknown Sources on Android
+          3. Install and ensure both phone and laptop are on same Wi‑Fi
+
+          LM Studio (IP: 10.95.151.162):
+          - Start server in Developer tab
+          - Enable Serve on Local Network and CORS
+          - Verify http://10.95.151.162:1234
+
           Built from commit: ${{ github.sha }}
         files: bin/*.apk
         draft: false
