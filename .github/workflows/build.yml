@@ -1,0 +1,136 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-pip python3-setuptools git zip unzip openjdk-17-jdk autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+        
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install buildozer cython==0.29.33 pillow
+        
+    - name: Create required directories and files
+      run: |
+        mkdir -p data
+        # Create a simple icon if not provided
+        python -c "
+import os
+try:
+    from PIL import Image, ImageDraw
+except ImportError:
+    os.system('pip install pillow')
+    from PIL import Image, ImageDraw
+
+# Create icon
+if not os.path.exists('data/icon.png'):
+    img = Image.new('RGB', (512, 512), color='#2196F3')
+    draw = ImageDraw.Draw(img)
+    
+    # Draw a simple chat bubble icon
+    draw.ellipse([50, 50, 462, 462], fill='white', outline='#1976D2', width=10)
+    draw.ellipse([150, 200, 220, 270], fill='#2196F3')
+    draw.ellipse([246, 200, 316, 270], fill='#2196F3')
+    draw.ellipse([342, 200, 412, 270], fill='#2196F3')
+    
+    img.save('data/icon.png')
+    print('Created app icon')
+
+# Create presplash
+if not os.path.exists('data/presplash.png'):
+    img = Image.new('RGB', (800, 600), color='#2196F3')
+    draw = ImageDraw.Draw(img)
+    
+    # Draw app title
+    text = 'Local AI Chat'
+    try:
+        from PIL import ImageFont
+        font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), text, font=font)
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text(((800-w)//2, (600-h)//2), text, fill='white', font=font)
+    except:
+        draw.text((300, 280), text, fill='white')
+    
+    img.save('data/presplash.png')
+    print('Created splash screen')
+"
+      
+    - name: Build with Buildozer
+      run: |
+        # Accept Android SDK licenses
+        yes | buildozer android debug
+        
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: local-ai-chat-apk
+        path: bin/*.apk
+        retention-days: 30
+        
+    - name: Create Release
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ github.run_number }}
+        name: Local AI Chat v${{ github.run_number }}
+        body: |
+          🤖 **Local AI Chat APK - Ready to Install!**
+          
+          ## 📱 Installation Instructions
+          1. **Download the APK** file below
+          2. **Transfer to your Android device** (USB, email, or cloud)
+          3. **Enable "Install from Unknown Sources"** in Android settings
+          4. **Install the APK** by tapping the file
+          5. **Connect both devices** to the same Wi-Fi network
+          
+          ## 🔧 LM Studio Setup (On Your Laptop - IP: 10.95.151.162)
+          1. **Download LM Studio** from https://lmstudio.ai/
+          2. **Load a model** (Llama, Mistral, DeepSeek, etc.)
+          3. **Go to Developer tab** → Start Server
+          4. **Enable "Serve on Local Network"** in settings
+          5. **Enable "CORS"** for mobile access
+          6. **Verify server** at http://10.95.151.162:1234
+          
+          ## ✨ What's New in This Build
+          - 🎯 **Pre-configured** for IP address 10.95.151.162
+          - 💬 **ChatGPT-like interface** with blue/gray message bubbles
+          - 🔄 **Real-time messaging** with threaded API calls
+          - 📱 **Mobile-optimized UI** with touch-friendly controls
+          - 🛡️ **Complete privacy** - all data stays local
+          - 🚀 **Ready to use** - just install and connect!
+          
+          ## 🔍 Troubleshooting
+          - **Connection failed**: Ensure both devices on same Wi-Fi
+          - **Server not found**: Check LM Studio is running on laptop
+          - **No response**: Verify model is loaded in LM Studio
+          
+          Built from commit: ${{ github.sha }}
+          Build number: ${{ github.run_number }}
+          Build date: ${{ github.event.head_commit.timestamp }}
+          
+        files: bin/*.apk
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
