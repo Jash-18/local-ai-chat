@@ -10,18 +10,19 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-        
+
     - name: Install system dependencies
       run: |
+        set -e
         sudo apt-get update
         sudo apt-get install -y \
           python3-pip python3-setuptools python3-venv \
@@ -37,11 +38,13 @@ jobs:
 
     - name: Install Python dependencies
       run: |
+        set -e
         python -m pip install --upgrade pip
         pip install buildozer pillow cython==0.29.36
 
     - name: Set up Android SDK (cmdline-tools)
       run: |
+        set -e
         ANDROID_SDK_ROOT="$HOME/android-sdk"
         mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
         cd "$ANDROID_SDK_ROOT/cmdline-tools"
@@ -61,6 +64,7 @@ jobs:
 
     - name: Install Android SDK components
       run: |
+        set -e
         sdkmanager "platform-tools" "platforms;android-33" "build-tools;34.0.0"
 
     - name: Verify Android tools
@@ -72,47 +76,47 @@ jobs:
     - name: Create app icon
       run: |
         mkdir -p data
-        python3 - << 'PY'
-import os
-try:
-    from PIL import Image, ImageDraw
-except ImportError:
-    os.system('pip install pillow')
-    from PIL import Image, ImageDraw
+        python3 - <<'PY'
+        import os
+        try:
+            from PIL import Image, ImageDraw
+        except ImportError:
+            os.system('pip install pillow')
+            from PIL import Image, ImageDraw
 
-if not os.path.exists('data/icon.png'):
-    img = Image.new('RGB', (512, 512), color='#2196F3')
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([50, 50, 462, 462], fill='white', outline='#1976D2', width=10)
-    draw.ellipse([150, 200, 220, 270], fill='#2196F3')
-    draw.ellipse([246, 200, 316, 270], fill='#2196F3')
-    draw.ellipse([342, 200, 412, 270], fill='#2196F3')
-    img.save('data/icon.png')
-    print('Created app icon')
-PY
+        os.makedirs('data', exist_ok=True)
+        if not os.path.exists('data/icon.png'):
+            img = Image.new('RGB', (512, 512), color='#2196F3')
+            draw = ImageDraw.Draw(img)
+            draw.ellipse([50, 50, 462, 462], fill='white', outline='#1976D2', width=10)
+            draw.ellipse([150, 200, 220, 270], fill='#2196F3')
+            draw.ellipse([246, 200, 316, 270], fill='#2196F3')
+            draw.ellipse([342, 200, 412, 270], fill='#2196F3')
+            img.save('data/icon.png')
+            print('Created app icon')
+        PY
 
     - name: Create splash screen
       run: |
-        python3 - << 'PY'
-import os
-from PIL import Image, ImageDraw, ImageFont
+        python3 - <<'PY'
+        import os
+        from PIL import Image, ImageDraw, ImageFont
 
-if not os.path.exists('data'):
-    os.makedirs('data')
-if not os.path.exists('data/presplash.png'):
-    img = Image.new('RGB', (800, 600), color='#2196F3')
-    draw = ImageDraw.Draw(img)
-    text = 'Local AI Chat'
-    try:
-        font = ImageFont.load_default()
-        bbox = draw.textbbox((0, 0), text, font=font)
-        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        draw.text(((800-w)//2, (600-h)//2), text, fill='white', font=font)
-    except Exception:
-        draw.text((300, 280), text, fill='white')
-    img.save('data/presplash.png')
-    print('Created splash screen')
-PY
+        os.makedirs('data', exist_ok=True)
+        if not os.path.exists('data/presplash.png'):
+            img = Image.new('RGB', (800, 600), color='#2196F3')
+            draw = ImageDraw.Draw(img)
+            text = 'Local AI Chat'
+            try:
+                font = ImageFont.load_default()
+                bbox = draw.textbbox((0, 0), text, font=font)
+                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                draw.text(((800-w)//2, (600-h)//2), text, fill='white', font=font)
+            except Exception:
+                draw.text((300, 280), text, fill='white')
+            img.save('data/presplash.png')
+            print('Created splash screen')
+        PY
 
     - name: Build with Buildozer
       env:
@@ -121,6 +125,7 @@ PY
         ANDROID_API: "33"
         ANDROID_BUILD_TOOLS: "34.0.0"
       run: |
+        set -e
         buildozer android debug
 
     - name: Upload APK artifact
