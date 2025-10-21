@@ -11,6 +11,13 @@ jobs:
   build-android:
     runs-on: ubuntu-latest
 
+    env:
+      ANDROID_API: "33"
+      ANDROID_BUILD_TOOLS: "34.0.0"
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
+      ANDROID_NDK_HOME: ${{ github.workspace }}/android-ndk
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -20,9 +27,9 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Install system dependencies
+    - name: Install system dependencies (Ubuntu 24.04)
       run: |
-        set -e
+        set -euo pipefail
         sudo apt-get update
         sudo apt-get install -y \
           python3-pip python3-setuptools python3-venv \
@@ -38,25 +45,22 @@ jobs:
 
     - name: Install Python dependencies
       run: |
-        set -e
+        set -euo pipefail
         python -m pip install --upgrade pip
         pip install buildozer pillow cython==0.29.36
 
-    - name: Set up Android SDK (cmdline-tools)
+    - name: Set up Android SDK cmdline-tools
       run: |
-        set -e
-        ANDROID_SDK_ROOT="$HOME/android-sdk"
+        set -euo pipefail
         mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
         cd "$ANDROID_SDK_ROOT/cmdline-tools"
         curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o cmdtools.zip
         mkdir -p latest
         unzip -q cmdtools.zip -d latest
         rm cmdtools.zip
-        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-        echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
         echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
         echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
-        echo "$ANDROID_SDK_ROOT/build-tools/34.0.0" >> $GITHUB_PATH
+        echo "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}" >> $GITHUB_PATH
 
     - name: Accept Android SDK licenses
       run: |
@@ -64,17 +68,28 @@ jobs:
 
     - name: Install Android SDK components
       run: |
-        set -e
-        sdkmanager "platform-tools" "platforms;android-33" "build-tools;34.0.0"
+        set -euo pipefail
+        sdkmanager "platform-tools" "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}"
 
-    - name: Verify Android tools
+    - name: Install Android NDK r25b
       run: |
+        set -euo pipefail
+        sdkmanager "ndk;25.1.8937393"
+        ln -s "$ANDROID_SDK_ROOT/ndk/25.1.8937393" "$ANDROID_NDK_HOME"
+        echo "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+
+    - name: Verify Android toolchains
+      run: |
+        set -euo pipefail
         which sdkmanager || true
         sdkmanager --list | head -n 50 || true
         ls -la "$ANDROID_SDK_ROOT/build-tools" || true
+        ls -la "$ANDROID_SDK_ROOT/platforms" || true
+        ls -la "$ANDROID_NDK_HOME" || true
 
     - name: Create app icon
       run: |
+        set -euo pipefail
         mkdir -p data
         python3 - <<'PY'
         import os
@@ -83,7 +98,6 @@ jobs:
         except ImportError:
             os.system('pip install pillow')
             from PIL import Image, ImageDraw
-
         os.makedirs('data', exist_ok=True)
         if not os.path.exists('data/icon.png'):
             img = Image.new('RGB', (512, 512), color='#2196F3')
@@ -98,10 +112,10 @@ jobs:
 
     - name: Create splash screen
       run: |
+        set -euo pipefail
         python3 - <<'PY'
         import os
         from PIL import Image, ImageDraw, ImageFont
-
         os.makedirs('data', exist_ok=True)
         if not os.path.exists('data/presplash.png'):
             img = Image.new('RGB', (800, 600), color='#2196F3')
@@ -118,14 +132,20 @@ jobs:
             print('Created splash screen')
         PY
 
-    - name: Build with Buildozer
+    - name: Build with Buildozer (explicit env)
       env:
         ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
         ANDROID_HOME: ${{ env.ANDROID_HOME }}
-        ANDROID_API: "33"
-        ANDROID_BUILD_TOOLS: "34.0.0"
+        ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        ANDROID_API: ${{ env.ANDROID_API }}
+        ANDROID_BUILD_TOOLS: ${{ env.ANDROID_BUILD_TOOLS }}
       run: |
-        set -e
+        set -euo pipefail
+        echo "[android]" >> buildozer.spec
+        echo "android.sdk_path = ${ANDROID_SDK_ROOT}" >> buildozer.spec
+        echo "android.ndk_path = ${ANDROID_NDK_HOME}" >> buildozer.spec
+        echo "android.api = ${ANDROID_API}" >> buildozer.spec
+        echo "# build-tools pinned via environment" >> buildozer.spec
         buildozer android debug
 
     - name: Upload APK artifact
