@@ -49,7 +49,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install buildozer pillow cython==0.29.36
 
-    - name: Set up Android SDK cmdline-tools
+    - name: Download Android cmdline-tools and set PATH
       run: |
         set -euo pipefail
         mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
@@ -58,31 +58,42 @@ jobs:
         mkdir -p latest
         unzip -q cmdtools.zip -d latest
         rm cmdtools.zip
+        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
         echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
         echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
         echo "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}" >> $GITHUB_PATH
+        # Verify sdkmanager is present now
+        "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --version || true
 
-    - name: Accept Android SDK licenses
-      run: |
-        yes | sdkmanager --licenses || true
-
-    - name: Install Android SDK components
+    - name: Accept Android SDK licenses (absolute path)
       run: |
         set -euo pipefail
-        sdkmanager "platform-tools" "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}"
+        "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses <<EOF || true
+        y
+        y
+        y
+        y
+        y
+        EOF
 
-    - name: Install Android NDK r25b
+    - name: Install Android SDK components (absolute path)
       run: |
         set -euo pipefail
-        sdkmanager "ndk;25.1.8937393"
+        "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-${ANDROID_API}" "build-tools;${ANDROID_BUILD_TOOLS}"
+
+    - name: Install Android NDK r25b (absolute path)
+      run: |
+        set -euo pipefail
+        "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;25.1.8937393"
         ln -s "$ANDROID_SDK_ROOT/ndk/25.1.8937393" "$ANDROID_NDK_HOME"
         echo "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
     - name: Verify Android toolchains
       run: |
         set -euo pipefail
-        which sdkmanager || true
-        sdkmanager --list | head -n 50 || true
+        "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --list | head -n 50 || true
         ls -la "$ANDROID_SDK_ROOT/build-tools" || true
         ls -la "$ANDROID_SDK_ROOT/platforms" || true
         ls -la "$ANDROID_NDK_HOME" || true
@@ -141,11 +152,8 @@ jobs:
         ANDROID_BUILD_TOOLS: ${{ env.ANDROID_BUILD_TOOLS }}
       run: |
         set -euo pipefail
-        echo "[android]" >> buildozer.spec
-        echo "android.sdk_path = ${ANDROID_SDK_ROOT}" >> buildozer.spec
-        echo "android.ndk_path = ${ANDROID_NDK_HOME}" >> buildozer.spec
-        echo "android.api = ${ANDROID_API}" >> buildozer.spec
-        echo "# build-tools pinned via environment" >> buildozer.spec
+        # Ensure Buildozer uses the paths that CI installed
+        printf "\n[android]\nandroid.sdk_path = %s\nandroid.ndk_path = %s\nandroid.api = %s\n" "$ANDROID_SDK_ROOT" "$ANDROID_NDK_HOME" "$ANDROID_API" >> buildozer.spec
         buildozer android debug
 
     - name: Upload APK artifact
