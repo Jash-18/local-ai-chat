@@ -52,31 +52,28 @@ jobs:
     - name: Download Android cmdline-tools and set PATH
       run: |
         set -euo pipefail
+        rm -rf "$ANDROID_SDK_ROOT" && mkdir -p "$ANDROID_SDK_ROOT"
         mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-        cd "$ANDROID_SDK_ROOT/cmdline-tools"
-        curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o cmdtools.zip
-        mkdir -p latest
-        unzip -q cmdtools.zip -d latest
-        rm cmdtools.zip
+        TMPDIR="$(mktemp -d)"
+        curl -sSL https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o "$TMPDIR/cmdtools.zip"
+        unzip -q "$TMPDIR/cmdtools.zip" -d "$TMPDIR"
+        # Move inner cmdline-tools into sdk/cmdline-tools/latest so bin/sdkmanager exists there
+        mv "$TMPDIR/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+        rm -rf "$TMPDIR"
         echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
         echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
         echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
         echo "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin" >> $GITHUB_PATH
         echo "$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_PATH
         echo "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS}" >> $GITHUB_PATH
-        # Verify sdkmanager is present now
+        # Verify sdkmanager now exists
+        ls -la "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin"
         "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --version || true
 
     - name: Accept Android SDK licenses (absolute path)
       run: |
         set -euo pipefail
-        "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses <<EOF || true
-        y
-        y
-        y
-        y
-        y
-        EOF
+        yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
     - name: Install Android SDK components (absolute path)
       run: |
@@ -87,8 +84,10 @@ jobs:
       run: |
         set -euo pipefail
         "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;25.1.8937393"
+        rm -f "$ANDROID_NDK_HOME" || true
         ln -s "$ANDROID_SDK_ROOT/ndk/25.1.8937393" "$ANDROID_NDK_HOME"
         echo "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+        ls -la "$ANDROID_NDK_HOME" || true
 
     - name: Verify Android toolchains
       run: |
